@@ -102,6 +102,7 @@ class State(TypedDict):
     target_column: str
     unit: str
     item_description: str
+    sign: str
     output_path: str
     errors: list
 
@@ -203,9 +204,14 @@ def enrich_node(state: State) -> dict:
 
 
 def save_node(state: State) -> dict:
-    """Агент-запис: зберігає збагачений файл (оригінальні колонки збережено)."""
+    """Агент-запис: зберігає збагачений файл (оригінальні колонки збережено).
+
+    Назва: `<stem>_enriched[_<sign>].xlsx` — за наявності `sign` файл одразу
+    підписується прізвищем, тож зайвих копій немає.
+    """
     src = Path(state["file_path"])
-    out = src.with_name(f"{src.stem}_enriched.xlsx")
+    sign = state.get("sign") or ""
+    out = src.with_name(f"{src.stem}_enriched" + (f"_{sign}" if sign else "") + ".xlsx")
     state["df"].to_excel(out, index=False)
     return {"output_path": str(out)}
 
@@ -223,9 +229,13 @@ _graph.add_edge("save", END)
 app = _graph.compile()
 
 
-def process_excel(file_path: str, task_description: str) -> dict:
-    """Універсальний інтерфейс: збагачує Excel-файл за текстовим описом задачі."""
-    final = app.invoke({"file_path": file_path, "task_description": task_description})
+def process_excel(file_path: str, task_description: str, sign: str = "") -> dict:
+    """Універсальний інтерфейс: збагачує Excel-файл за текстовим описом задачі.
+
+    `sign` (необов'язково) додається в назву результату для підпису прізвищем.
+    """
+    final = app.invoke({"file_path": file_path,
+                        "task_description": task_description, "sign": sign})
     df, target = final["df"], final["target_column"]
     n_filled = df[target].notna().sum()
     print(f"[{Path(file_path).name}] колонка '{target}' "
@@ -239,12 +249,16 @@ def process_excel(file_path: str, task_description: str) -> dict:
 # ## 4. Запуск на тестових наборах
 #
 # Один і той самий `process_excel` обробляє **обидва** набори без зміни коду —
-# це і є універсальність системи.
+# це і є універсальність системи. Результат одразу зберігається підписаним
+# (`sign`), тож зайвих копій файлів немає.
 
 # %%
+SURNAME = "Oleksandr_Vasyleiko"
+
 res_capitals = process_excel(
     "capitals.xlsx",
     "знайди пряму відстань між столицями в км для колонки distance",
+    sign=SURNAME,
 )
 res_capitals["df"]
 
@@ -252,20 +266,12 @@ res_capitals["df"]
 res_mountains = process_excel(
     "mountains.xlsx",
     "додай висоту гір у метрах до колонки height",
+    sign=SURNAME,
 )
 res_mountains["df"]
 
 # %% [markdown]
-# ## 5. Збереження підписаних файлів-результатів
-
-# %%
-SURNAME = "Oleksandr_Vasyleiko"
-res_capitals["df"].to_excel(f"capitals_enriched_{SURNAME}.xlsx", index=False)
-res_mountains["df"].to_excel(f"mountains_enriched_{SURNAME}.xlsx", index=False)
-print(f"Збережено: capitals_enriched_{SURNAME}.xlsx, mountains_enriched_{SURNAME}.xlsx")
-
-# %% [markdown]
-# ## 6. Візуалізація результатів
+# ## 5. Візуалізація результатів
 
 # %%
 sns.set_theme(style="whitegrid")
@@ -292,7 +298,7 @@ plt.tight_layout()
 plt.show()
 
 # %% [markdown]
-# ## 7. Висновки
+# ## 6. Висновки
 #
 # - **Точність:** значення збігаються з довідковими в межах ±10% (відстані —
 #   great-circle між столицями; висоти гір — відомі константи).
